@@ -125,10 +125,13 @@ def parse_log_file(file_path):
             timestamp = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S,%f")
             step_desc = match.group(2).split(" (")[0].strip()
             worker = "som"
-
+            if "SUCCESS" in line:
+                type = "end"
+            else:
+                type = "start"
             if current_task:
                 current_task["steps"].append({
-                    "type": "start",
+                    "type": type,
                     "line": line,
                     "worker": worker,
                     "desc": f"ERROR HANDLING {step_desc}",
@@ -242,7 +245,10 @@ class TaskViewerApp:
                 if i < len(desc) -1:
                     result +="_"
             return  result
+        elif "SUCCESS" in desc:
+            return desc.split("SUCCESS")[0].strip()
         else:
+            print(desc)
             return desc.strip()
 
     # def show_task_details(self, event):
@@ -322,9 +328,9 @@ class TaskViewerApp:
             elif step["type"] == "end":
                 for i, s in enumerate(start_stack):
                     if normalized in self.normalize_step_desc(s["desc"]):
-                        print(s["desc"])
-                        print(step["desc"])
-                        print(s["worker"])
+                        # print(s["desc"])
+                        # print(step["desc"])
+                        # print(s["worker"])
                         description = self.set_desc(s,step)
                         paired_steps.append({
                             "desc": description ,
@@ -379,8 +385,8 @@ class TaskViewerApp:
             self.steps_table.insert("", tk.END, values=(desc, start, end, duration), tags=(tag,))
 
     def set_desc(self,start_desc,end_desc):
-        print(start_desc)
-        print(end_desc)
+        # print(start_desc)
+        # print(end_desc)
         if start_desc["worker"] == "maestro":
             if "completed successfully" in end_desc["desc"]:
                 desc = "maestro end " + start_desc["desc"].split("complete")[1] + " task successfully"
@@ -397,7 +403,9 @@ class TaskViewerApp:
 
         else:
             desc = end_desc["desc"]
-        print(f"result {desc}")
+            print(start_desc)
+            print(end_desc)
+        # print(f"result {desc}")
         return desc
 
     def export_steps_to_excel(self):
