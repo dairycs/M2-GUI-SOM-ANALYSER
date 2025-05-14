@@ -33,3 +33,7 @@ class MongoDBManager:
             return list(cursor)
         return []
 
+    def get_aggregated_documents(self, collection_name, pipeline):
+        return list(self.db[collection_name].aggregate(pipeline))
+
+
