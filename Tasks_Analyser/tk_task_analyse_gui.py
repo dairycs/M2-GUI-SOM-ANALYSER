@@ -395,7 +395,8 @@ class TaskViewerApp:
         elif start_desc["worker"] == "mtc":
             desc = end_desc["desc"]
 
-
+        else:
+            desc = end_desc["desc"]
         print(f"result {desc}")
         return desc
 
