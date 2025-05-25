@@ -3,17 +3,42 @@ from dash import html, dcc, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 
 # Available analysis types
 ANALYSIS_OPTIONS = [
     {"label": "Mounting duration by cow and teat", "value": "duration"},
     {"label": "Mounting success by cow and teat", "value": "success"},
-    {"label": "Error distribution by cow and teat", "value": "errors"},
     {"label": "Retries until success by cow and teat", "value": "retries"},
-    {"label": "Mounting results over time", "value": "over_time"}
+    {"label": "Mounting results over time", "value": "over_time"},
+    {"label": "Error distribution by cow and teat", "value": "errors"},
 ]
+
+
+def is_success(mounting_data):
+    if not isinstance(mounting_data, dict):
+        return 0
+
+    numeric_keys = [int(k) for k in mounting_data.keys() if k.isdigit()]
+    if not numeric_keys:
+        return 0
+
+    last_key = str(max(numeric_keys))
+    if isinstance(mounting_data[last_key], list):
+        return 1 if mounting_data[last_key][0] == "Mounted_successfully" else 0
+    return 0
+
+
+def mounting_retry(mounting_data):
+    if not isinstance(mounting_data, dict):
+        return 1
+
+    numeric_keys = [int(k) for k in mounting_data.keys() if k.isdigit()]
+    if not numeric_keys:
+        return 1
+    print(max(numeric_keys))
+    return max(numeric_keys)
 
 def mounting_layout(mongo_handler):
     return dbc.Container([
@@ -37,11 +62,11 @@ def mounting_layout(mongo_handler):
             ], width=2),
             dbc.Col([
                 dbc.Label("Start Date"),
-                dcc.DatePickerSingle(id="filter-start-date")
+                dcc.DatePickerSingle(id="filter-start-date" ,date=(datetime.now() - timedelta(days=7)).date() )
             ], width=2),
             dbc.Col([
                 dbc.Label("End Date"),
-                dcc.DatePickerSingle(id="filter-end-date")
+                dcc.DatePickerSingle(id="filter-end-date" , date=datetime.now().date())
             ], width=2)
         ], className="mb-3"),
         dbc.Row([
@@ -94,13 +119,20 @@ def register_callbacks(app, mongo_handler):
             doc["duration_sec"] = (doc["end"] - doc["start"]).total_seconds()
 
         df = pd.DataFrame(docs)
+        # print(df["duration_sec"])
 
         if analysis_type == "duration":
             # Group by cow and teat
-            grouped = df.groupby(["cow_id", "teat_id"])["duration_sec"].mean().reset_index()
-            grouped["cow_id"] = grouped["cow_id"].astype(str)  # make cow_id categorical
-            grouped["teat_id"] = grouped["teat_id"].astype(str)  # 🆕 Force teat_id to be categorical
 
+            df["cow_id"] = df["cow_id"].astype(str)
+            df["teat_id"] = df["teat_id"].astype(str)
+            df["duration_sec"] = df["duration_sec"].round(1)
+            df = df[df["duration_sec"] < 7200]  # filter out corrupted rows
+            df = df[df["duration_sec"] > 0]  # optional: remove zero/negative
+
+            grouped = df.groupby(["cow_id", "teat_id"])["duration_sec"].mean().reset_index()
+
+            print(grouped)
             fig = px.bar(
                 grouped,
                 x="cow_id",
@@ -115,19 +147,13 @@ def register_callbacks(app, mongo_handler):
         # Mounting Success
         elif analysis_type == "success":
             # Determine success per document
-            def is_success(mounting_data):
-                if not isinstance(mounting_data, dict):
-                    return False
-                numeric_keys = [int(k) for k in mounting_data.keys() if k.isdigit()]
-                if not numeric_keys:
-                    return False
-                last_key = str(max(numeric_keys))
-                return str(mounting_data.get(last_key, [None])[0]) == "Mounted_successfully"
 
+
+            # Apply function to each row
             df["success"] = df["Mounting_data"].apply(is_success)
+
             df["cow_id"] = df["cow_id"].astype(str)
             df["teat_id"] = df["teat_id"].astype(str)
-
             grouped = df.groupby(["cow_id", "teat_id"]).agg(
                 success_rate=("success", "mean"),
                 trial_count=("success", "count")
@@ -136,6 +162,7 @@ def register_callbacks(app, mongo_handler):
             grouped["success_percent"] = grouped["success_rate"] * 100
             grouped["label"] = grouped["success_percent"].round(1).astype(str) + "% (" + grouped["trial_count"].astype(
                 str) + " trials)"
+            print(grouped)
 
             fig = px.bar(
                 grouped,
@@ -154,6 +181,42 @@ def register_callbacks(app, mongo_handler):
             fig.update_traces(textposition="auto")
             fig.update_yaxes(range=[0, 100])
 
+            return dcc.Graph(figure=fig)
+
+        elif analysis_type == "retries":
+
+
+            # Apply function to each row
+            df["success"] = df["Mounting_data"].apply(is_success)
+            df["mounting_retry"] = df["Mounting_data"].apply(mounting_retry)
+
+            df["cow_id"] = df["cow_id"].astype(str)
+            df["teat_id"] = df["teat_id"].astype(str)
+            grouped = df.groupby(["cow_id", "teat_id"]).agg(
+                mounting_retry=("mounting_retry", "sum"),
+                trial_count=("success", "count")
+            ).reset_index()
+
+            grouped["retry_to_success"] = grouped["mounting_retry"] / grouped["trial_count"]
+            grouped["label"] = grouped["retry_to_success"].round(1).astype(str) + " (" + grouped["mounting_retry"].astype(
+                str) + " Mounting trials)"
+            print(grouped)
+
+            fig = px.bar(
+                grouped,
+                x="cow_id",
+                y="retry_to_success",
+                color="teat_id",
+                barmode="group",
+                text=grouped["label"],
+                labels={
+                    "retry_to_success": "Mounting retry to Success AVG ",
+                    "cow_id": "Cow ID",
+                    "teat_id": "Teat ID"
+                },
+                title="Mounting Retry to Success  by Cow and Teat"
+            )
+            fig.update_traces(textposition="auto")
             return dcc.Graph(figure=fig)
         # Placeholder for other analysis types
         return html.Div("This analysis is not implemented yet.")
