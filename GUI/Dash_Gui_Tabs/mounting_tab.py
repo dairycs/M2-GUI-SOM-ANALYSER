@@ -73,7 +73,7 @@ def mounting_layout(mongo_handler):
             ], width=2),
             dbc.Col([
                 dbc.Label("End Date"),
-                dcc.DatePickerSingle(id="filter-end-date" , date=datetime.now().date())
+                dcc.DatePickerSingle(id="filter-end-date", date=(datetime.now()+ timedelta(days=1)).date())
             ], width=2)
         ], className="mb-3"),
         dbc.Row([
